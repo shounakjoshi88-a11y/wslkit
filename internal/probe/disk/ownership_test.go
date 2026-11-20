@@ -1,6 +1,7 @@
 package disk
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -28,5 +29,44 @@ func TestOwnership(t *testing.T) {
 	}
 	if r := (Ownership{}).Run(vhdEnv("2.7.13.0", env.OwnerAdministrators)); r.Status != probe.OK || !strings.Contains(r.Summary, "2.7.12") {
 		t.Fatalf("admins on fixed runtime -> %s %q", r.Status, r.Summary)
+	}
+}
+
+func unreadableEnv(runtime string, readable bool) *env.Env {
+	e := vhdEnv(runtime, env.OwnerAdministrators)
+	d := e.Distros.Value[0]
+	v := d.Vhd.Value
+	v.UserReadable = &readable
+	d.Vhd = env.Ok(v, "t")
+	e.Distros.Value[0] = d
+	return e
+}
+
+// WSL 3.0.5 opens the disk as the user, for reading (microsoft/WSL#42048).
+func TestOwnershipUserRead(t *testing.T) {
+	r := (Ownership{}).Run(unreadableEnv("3.0.5.0", false))
+	if r.Status != probe.Fail || !strings.Contains(r.Detail, "42048") || r.FixHint == "" {
+		t.Fatalf("unreadable on 3.0.5 -> %s %q", r.Status, r.Summary)
+	}
+	r = (Ownership{}).Run(unreadableEnv("3.0.3.0", false))
+	if r.Status != probe.Warn || !strings.Contains(r.Summary, "3.0.5") {
+		t.Fatalf("unreadable on 3.0.3 -> %s %q", r.Status, r.Summary)
+	}
+	if r := (Ownership{}).Run(unreadableEnv("3.0.5.0", true)); r.Status != probe.OK {
+		t.Fatalf("readable, admin-owned on 3.0.5 -> %s %q", r.Status, r.Summary)
+	}
+}
+
+// A disk the user cannot read is also one doctor cannot open, so the collector
+// reports the open as refused and keeps the facts it read before trying.
+func TestOwnershipUserReadOpenRefused(t *testing.T) {
+	e := unreadableEnv("3.0.5.0", false)
+	d := e.Distros.Value[0]
+	f := env.Fail[env.VhdInfo](env.ErrNeedsElevation, "t", errors.New("Access is denied."))
+	f.Value = d.Vhd.Value
+	d.Vhd = f
+	e.Distros.Value[0] = d
+	if r := (Ownership{}).Run(e); r.Status != probe.Fail {
+		t.Fatalf("unreadable, open refused, on 3.0.5 -> %s %q", r.Status, r.Summary)
 	}
 }

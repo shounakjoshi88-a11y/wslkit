@@ -497,11 +497,18 @@ func inspectVhd(path string) (env.Field[env.VhdInfo], env.Field[ext4.Super]) {
 		info.OwnerSID = sid
 		info.Owner = classifyOwner(sid)
 	}
+	if can, err := fileinfo.UserCanRead(path); err == nil {
+		info.UserReadable = &can
+	}
 	h, err := fileinfo.OpenShared(path)
 	if err != nil {
 		info.ParseErr = "open: " + err.Error()
 		if kindOf(err) == env.ErrNeedsElevation {
-			return env.Fail[env.VhdInfo](env.ErrNeedsElevation, path, err), fs
+			// Keep what was read without opening the file: DSK006 needs
+			// the owner and the read check most when the open is refused.
+			f := env.Fail[env.VhdInfo](env.ErrNeedsElevation, path, err)
+			f.Value = info
+			return f, fs
 		}
 		return env.Ok(info, path), fs // stat worked; parse did not
 	}
@@ -572,6 +579,15 @@ func collectConfig(ctx context.Context, e *env.Env, o Options) error {
 				}
 				_, serr := os.Stat(real)
 				e.Config.PathsExist[strings.ToLower(real)] = serr == nil
+				if serr != nil {
+					continue
+				}
+				if can, aerr := fileinfo.UserCanRead(real); aerr == nil {
+					if e.Config.PathsReadable == nil {
+						e.Config.PathsReadable = map[string]bool{}
+					}
+					e.Config.PathsReadable[strings.ToLower(real)] = can
+				}
 			}
 		}
 	case errors.Is(err, os.ErrNotExist):
