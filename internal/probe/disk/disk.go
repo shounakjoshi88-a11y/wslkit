@@ -60,7 +60,7 @@ func (p Integrity) Run(e *env.Env) probe.Result {
 			// user is denied, elevation will not help (the deny applies to the
 			// elevated token too); DSK006 is the probe that owns this case.
 			if r := v.Value.UserReadable; r != nil && !*r {
-				lines = append(lines, d.Name+": your account is denied read access to the VHDX; see DSK006")
+				lines = append(lines, d.Name+": your account cannot read the VHDX (its access list, not elevation); see DSK006")
 			} else {
 				lines = append(lines, d.Name+": VHDX not readable without elevation")
 			}
